@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataLens — Production EDA Intelligence</title>
+<!-- PapaParse for robust CSV parsing -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<!-- SheetJS for Excel support -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+<!-- Chart.js for professional visualizations -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ───────────────────────────────────────────────────────────────
+   RESET & TOKENS (enhanced production style)
+──────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #080c14;
+  --surface:    #0e1520;
+  --surface2:   #141d2d;
+  --surface3:   #1a2640;
+  --border:     rgba(88,166,255,.13);
+  --border2:    rgba(88,166,255,.22);
+
+  --blue:       #58a6ff;
+  --green:      #3fb950;
+  --red:        #f78166;
+  --purple:     #d2a8ff;
+  --amber:      #e3b341;
+  --cyan:       #39d5ff;
+
+  --text:       #e6edf3;
+  --muted:      #8b949e;
+  --dimmed:     #484f58;
+
+  --r-sm:       8px;
+  --r-md:       14px;
+  --r-lg:       20px;
+  --r-xl:       28px;
+
+  --sidebar-w:  260px;
+  --transition: .25s cubic-bezier(.4,0,.2,1);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
+
+.sidebar {
+  position: fixed;
+  top: 0; left: 0;
+  width: var(--sidebar-w);
+  height: 100vh;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  overflow-y: auto;
+  transition: transform var(--transition);
+}
+
+.sidebar-logo {
+  padding: 28px 24px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.logo-icon {
+  width: 34px; height: 34px;
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.logo-text {
+  font-size: 17px;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--blue), var(--purple));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-sub {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: .5px;
+  padding-left: 44px;
+}
+
+.sidebar-status {
+  margin: 16px 24px;
+  padding: 10px 14px;
+  background: rgba(63,185,80,.07);
+  border: 1px solid rgba(63,185,80,.2);
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--green);
+}
+
+.status-dot {
+  width: 7px; height: 7px;
+  background: var(--green);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,.4); }
+  50%      { opacity: .7; box-shadow: 0 0 0 5px rgba(63,185,80,0); }
+}
+
+.nav-section {
+  padding: 8px 16px 4px;
+  font-size: 10px;
+  color: var(--dimmed);
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  margin: 1px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  transition: all var(--transition);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.nav-item:hover {
+  background: var(--surface2);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.nav-item.active {
+  background: rgba(88,166,255,.1);
+  color: var(--blue);
+  border-color: rgba(88,166,255,.2);
+}
+
+.nav-icon { font-size: 14px; width: 20px; text-align: center; }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--dimmed);
+  text-align: center;
+}
+
+.main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  background: rgba(8,12,20,.88);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 50;
+}
+
+.topbar-title { font-size: 13px; color: var(--muted); }
+.topbar-title span { color: var(--text); }
+
+.btn {
+  padding: 7px 16px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid;
+  transition: all var(--transition);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border2);
+  color: var(--muted);
+}
+.btn-ghost:hover { color: var(--text); border-color: var(--blue); background: rgba(88,166,255,.06); }
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--blue), var(--purple));
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(88,166,255,.3);
+}
+.btn-primary:hover { transform: translateY(-1px); }
+
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.hamburger span {
+  display: block; width: 20px; height: 2px;
+  background: var(--muted); border-radius: 2px;
+}
+
+.content { padding: 36px 32px; flex: 1; max-width: 1200px; width: 100%; }
+.section { margin-bottom: 60px; scroll-margin-top: 80px; }
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.section-num {
+  font-size: 11px;
+  color: var(--blue);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+}
+.section-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border2), transparent);
+}
+
+.upload-zone {
+  border: 2px dashed var(--border2);
+  border-radius: var(--r-xl);
+  padding: 64px 32px;
+  text-align: center;
+  transition: all var(--transition);
+  cursor: pointer;
+  background: radial-gradient(ellipse at center, rgba(88,166,255,.04) 0%, transparent 70%);
+}
+.upload-zone:hover, .upload-zone.drag-over {
+  border-color: var(--blue);
+  background: radial-gradient(ellipse at center, rgba(88,166,255,.09) 0%, transparent 70%);
+}
+.format-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+.pill {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 10px;
+  border: 1px solid;
+}
+.pill-blue   { border-color: rgba(88,166,255,.3);  color: var(--blue);   background: rgba(88,166,255,.07); }
+.pill-green  { border-color: rgba(63,185,80,.3);   color: var(--green);  background: rgba(63,185,80,.07); }
+.pill-purple { border-color: rgba(210,168,255,.3); color: var(--purple); background: rgba(210,168,255,.07); }
+
+.cards { display: grid; gap: 16px; }
+.cards-4 { grid-template-columns: repeat(4, 1fr); }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 20px;
+  transition: all var(--transition);
+}
+.card-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.card-accent-blue .card-value { color: var(--blue); }
+.card-accent-green .card-value { color: var(--green); }
+.card-accent-red .card-value { color: var(--red); }
+.card-accent-amber .card-value { color: var(--amber); }
+
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+}
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  padding: 10px 20px;
+  text-align: left;
+  font-size: 10px;
+  color: var(--dimmed);
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+tbody td {
+  padding: 10px 20px;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+.type-badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--surface3);
+}
+
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.insight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 18px;
+  display: flex;
+  gap: 14px;
+  transition: all var(--transition);
+}
+.insight-card.type-corr  { border-left: 3px solid var(--blue); }
+.insight-card.type-miss  { border-left: 3px solid var(--amber); }
+.insight-card.type-out   { border-left: 3px solid var(--red); }
+.insight-card.type-feat  { border-left: 3px solid var(--green); }
+.insight-text { font-size: 12px; line-height: 1.6; color: var(--text); }
+.insight-text strong { color: var(--blue); }
+
+.chart-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, 1fr);
+}
+.chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  padding: 16px;
+}
+.chart-card.chart-wide { grid-column: span 2; }
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+canvas { max-height: 260px; width: 100% !important; }
+
+@media (max-width: 860px) {
+  .sidebar { transform: translateX(-260px); width: 260px; }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; }
+  .hamburger { display: flex; }
+  .cards-4 { grid-template-columns: repeat(2, 1fr); }
+  .insights-grid, .chart-grid { grid-template-columns: 1fr; }
+  .chart-card.chart-wide { grid-column: span 1; }
+}
+</style>
+</head>
+<body>
+
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark"><div class="logo-icon">🔬</div><div class="logo-text">DataLens</div></div>
+    <div class="logo-sub">Production EDA System</div>
+  </div>
+  <div class="sidebar-status"><div class="status-dot"></div>Pipeline Ready</div>
+  <div class="nav-section">Navigation</div>
+  <a class="nav-item active" href="#upload">📥 Data Ingestion</a>
+  <a class="nav-item" href="#summary">📊 Dataset Summary</a>
+  <a class="nav-item" href="#cleaning">🧹 Cleaning Report</a>
+  <a class="nav-item" href="#eda">📈 EDA Visuals</a>
+  <a class="nav-item" href="#insights">💡 AI Insights</a>
+  <div class="sidebar-footer">Auto-EDA Pipeline © 2025</div>
+</nav>
+
+<div class="main">
+  <header class="topbar">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="hamburger" id="hamburger"><span></span><span></span><span></span></button>
+      <div class="topbar-title"><span id="dataset-name">No dataset loaded</span> · <span id="stats-rows">0</span> rows</div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="reset-btn">⟳ Reset</button>
+      <button class="btn btn-primary" id="export-insights">↓ Export Insights</button>
+    </div>
+  </header>
+
+  <div class="content">
+    <!-- Upload Section -->
+    <section class="section" id="upload">
+      <div class="section-header"><div class="section-num">01</div><h2 class="section-title">Data Ingestion</h2><div class="section-line"></div></div>
+      <div class="upload-zone" id="dropzone">
+        <span class="upload-icon">🗂️</span>
+        <div class="upload-title">Drop CSV / Excel / JSON</div>
+        <div class="upload-sub">Auto-detects schema, handles missing values, outliers, and feature engineering</div>
+        <div class="format-pills"><span class="pill pill-blue">CSV</span><span class="pill pill-green">Excel .xlsx</span><span class="pill pill-purple">JSON</span></div>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls,.json" style="display:none" />
+        <button class="btn btn-primary" id="browse-btn">Browse Files</button>
+        <div class="upload-progress" id="upload-progress" style="display:none; margin-top:20px;">
+          <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+          <div class="progress-label" id="progress-label">Processing...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Summary Section (dynamic) -->
+    <section class="section" id="summary"><div class="section-header"><div class="section-num">02</div><h2 class="section-title">Dataset Summary</h2><div class="section-line"></div></div>
+      <div class="cards cards-4" id="summary-cards"></div>
+      <div class="table-wrap"><table id="schema-table"><thead><tr><th>Column</th><th>Type</th><th>Missing</th><th>Unique</th><th>Sample</th></tr></thead><tbody id="schema-body"></tbody></table></div>
+    </section>
+
+    <!-- Cleaning Pipeline -->
+    <section class="section" id="cleaning"><div class="section-header"><div class="section-num">03</div><h2 class="section-title">Data Cleaning Pipeline</h2><div class="section-line"></div></div>
+      <div class="cards cards-4" id="clean-cards"></div>
+    </section>
+
+    <!-- EDA Visuals -->
+    <section class="section" id="eda"><div class="section-header"><div class="section-num">04</div><h2 class="section-title">EDA Visualisations</h2><div class="section-line"></div></div>
+      <div class="chart-grid" id="charts-container"></div>
+    </section>
+
+    <!-- AI Insights -->
+    <section class="section" id="insights"><div class="section-header"><div class="section-num">05</div><h2 class="section-title">AI-Generated Insights</h2><div class="section-line"></div></div>
+      <div class="insights-grid" id="insights-list"></div>
+    </section>
+  </div>
+  <footer class="footer"><div>Production EDA · Real-time · Automated Intelligence</div><div id="timestamp"></div></footer>
+</div>
+
+<script>
+// ======================== PRODUCTION EDA ENGINE ========================
+let currentData = null;      // raw DataFrame (array of objects)
+let cleanedData = null;
+let columnTypes = {};
+let missingBefore = {};
+let outlierFlag = {};
+let insights = [];
+
+// Helper: detect column types
+function detectTypes(data, colName) {
+  const values = data.map(row => row[colName]).filter(v => v !== null && v !== undefined && v !== "");
+  if (values.length === 0) return "categorical";
+  const sample = values.slice(0, 100);
+  const isNum = sample.every(v => !isNaN(parseFloat(v)) && isFinite(v));
+  if (isNum) return "numerical";
+  const dateTest = sample.every(v => !isNaN(Date.parse(v)));
+  if (dateTest) return "datetime";
+  const uniqueRatio = new Set(values).size / values.length;
+  if (uniqueRatio < 0.5 || values.length < 30) return "categorical";
+  return "categorical";
+}
+
+// Imputation & Cleaning
+function cleanDataset(data) {
+  let df = JSON.parse(JSON.stringify(data));
+  missingBefore = {};
+  for (let col in df[0]) {
+    let count = 0;
+    for (let i=0; i<df.length; i++) if (df[i][col] === null || df[i][col] === undefined || df[i][col] === "") count++;
+    missingBefore[col] = count;
+    if (columnTypes[col] === "numerical") {
+      let nums = df.map(r => r[col]).filter(v => v !== null && !isNaN(v)).map(Number);
+      let median = nums.sort((a,b)=>a-b)[Math.floor(nums.length/2)] || 0;
+      for (let i=0; i<df.length; i++) if (df[i][col] === null || df[i][col] === "") df[i][col] = median;
+    } else if (columnTypes[col] === "categorical") {
+      let freq = {};
+      for (let r of df) if (r[col]) freq[r[col]] = (freq[r[col]]||0)+1;
+      let mode = Object.keys(freq).reduce((a,b)=> freq[a]>freq[b] ? a:b, "");
+      for (let i=0; i<df.length; i++) if (!df[i][col]) df[i][col] = mode || "unknown";
+    } else {
+      for (let i=0; i<df.length; i++) if (!df[i][col]) df[i][col] = "";
+    }
+  }
+  // outlier IQR detection (numerical)
+  outlierFlag = {};
+  for (let col in columnTypes) {
+    if (columnTypes[col] === "numerical") {
+      let vals = df.map(r => Number(r[col])).filter(v => !isNaN(v));
+      let q1 = percentile(vals, 0.25), q3 = percentile(vals, 0.75);
+      let iqr = q3 - q1;
+      let lower = q1 - 1.5*iqr, upper = q3 + 1.5*iqr;
+      let outliers = vals.filter(v => v < lower || v > upper).length;
+      if (outliers > 0) outlierFlag[col] = outliers;
+      // capping
+      for (let i=0; i<df.length; i++) {
+        let v = Number(df[i][col]);
+        if (!isNaN(v)) df[i][col] = Math.min(Math.max(v, lower), upper);
+      }
+    }
+  }
+  return df;
+}
+
+function percentile(arr, p) {
+  if (arr.length === 0) return 0;
+  let sorted = [...arr].sort((a,b)=>a-b);
+  let idx = (sorted.length-1) * p;
+  let lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] * (hi-idx) + sorted[hi] * (idx-lo);
+}
+
+function generateEDA(dataset) {
+  const numericCols = Object.keys(columnTypes).filter(c => columnTypes[c] === "numerical" && dataset[0]?.[c] !== undefined);
+  const catCols = Object.keys(columnTypes).filter(c => columnTypes[c] === "categorical");
+  const html = [];
+  // Histogram for first numeric column
+  if (numericCols.length) {
+    html.push(`<div class="chart-card"><div class="chart-header"><div class="chart-title">📊 Distribution: ${numericCols[0]}</div></div><canvas id="histChart" width="400" height="200"></canvas></div>`);
+  }
+  if (numericCols.length > 1) {
+    html.push(`<div class="chart-card"><div class="chart-header"><div class="chart-title">🔗 Correlation: ${numericCols[0]} vs ${numericCols[1]}</div></div><canvas id="scatterChart" width="400" height="200"></canvas></div>`);
+  }
+  if (catCols.length) {
+    html.push(`<div class="chart-card"><div class="chart-header"><div class="chart-title">🏷️ Top Categorical: ${catCols[0]}</div></div><canvas id="barChart" width="400" height="200"></canvas></div>`);
+  }
+  if (numericCols.length >= 2) {
+    html.push(`<div class="chart-card chart-wide"><div class="chart-header"><div class="chart-title">📈 Correlation Matrix (top pairs)</div></div><canvas id="corrHeatPlaceholder" width="800" height="180"></canvas></div>`);
+  }
+  document.getElementById("charts-container").innerHTML = html.join("");
+  if (numericCols.length) drawHistogram(dataset, numericCols[0]);
+  if (numericCols.length > 1) drawScatter(dataset, numericCols[0], numericCols[1]);
+  if (catCols.length) drawBarChart(dataset, catCols[0]);
+  if (numericCols.length >= 2) drawCorrelationBars(dataset, numericCols);
+}
+
+function drawHistogram(data, col) {
+  let values = data.map(r => Number(r[col])).filter(v => !isNaN(v));
+  let bins = 20;
+  let min = Math.min(...values), max = Math.max(...values);
+  let step = (max-min)/bins;
+  let hist = new Array(bins).fill(0);
+  values.forEach(v => { let idx = Math.min(bins-1, Math.floor((v-min)/step)); if (idx>=0) hist[idx]++; });
+  let ctx = document.getElementById("histChart")?.getContext("2d");
+  if (!ctx) return;
+  new Chart(ctx, { type: "bar", data: { labels: Array.from({length:bins}, (_,i)=> (min+i*step).toFixed(1)), datasets: [{ label: col, data: hist, backgroundColor: "#58a6ff", borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { labels: { color: "#e6edf3" } } }, scales: { x: { ticks: { color: "#8b949e" } }, y: { ticks: { color: "#8b949e" } } } } });
+}
+
+function drawScatter(data, xCol, yCol) {
+  let points = data.map(r => ({ x: Number(r[xCol]), y: Number(r[yCol]) })).filter(p => !isNaN(p.x) && !isNaN(p.y));
+  let ctx = document.getElementById("scatterChart")?.getContext("2d");
+  if (!ctx) return;
+  new Chart(ctx, { type: "scatter", data: { datasets: [{ label: `${xCol} vs ${yCol}`, data: points, backgroundColor: "#d2a8ff", pointRadius: 3 }] }, options: { responsive: true, plugins: { tooltip: { callbacks: { label: (ctx) => `${xCol}: ${ctx.raw.x}, ${yCol}: ${ctx.raw.y}` } } }, scales: { x: { title: { color: "#fff", text: xCol }, ticks: { color: "#8b949e" } }, y: { ticks: { color: "#8b949e" } } } } });
+}
+
+function drawBarChart(data, catCol) {
+  let freq = {};
+  data.forEach(r => { let val = r[catCol] || "unknown"; freq[val] = (freq[val]||0)+1; });
+  let sorted = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0, 8);
+  let ctx = document.getElementById("barChart")?.getContext("2d");
+  if (!ctx) return;
+  new Chart(ctx, { type: "bar", data: { labels: sorted.map(s=>s[0]), datasets: [{ label: "Count", data: sorted.map(s=>s[1]), backgroundColor: "#3fb950" }] }, options: { responsive: true, indexAxis: 'y', plugins: { legend: { labels: { color: "#e6edf3" } } }, scales: { x: { ticks: { color: "#8b949e" } }, y: { ticks: { color: "#8b949e" } } } } });
+}
+
+function drawCorrelationBars(data, numCols) {
+  function pearson(xArr, yArr) {
+    let n = xArr.length;
+    let sumX = xArr.reduce((a,b)=>a+b,0), sumY = yArr.reduce((a,b)=>a+b,0);
+    let sumXY = xArr.reduce((a,b,i)=>a+b*yArr[i],0);
+    let sumX2 = xArr.reduce((a,b)=>a+b*b,0), sumY2 = yArr.reduce((a,b)=>a+b*b,0);
+    let denom = Math.sqrt((sumX2 - sumX*sumX/n) * (sumY2 - sumY*sumY/n));
+    return denom === 0 ? 0 : (sumXY - sumX*sumY/n)/denom;
+  }
+  let pairs = [];
+  for (let i=0; i<numCols.length; i++) {
+    for (let j=i+1; j<numCols.length; j++) {
+      let xvals = data.map(r => Number(r[numCols[i]])).filter(v=>!isNaN(v));
+      let yvals = data.map(r => Number(r[numCols[j]])).filter(v=>!isNaN(v));
+      let len = Math.min(xvals.length, yvals.length);
+      let r = pearson(xvals.slice(0,len), yvals.slice(0,len));
+      pairs.push({ label: `${numCols[i]} ↔ ${numCols[j]}`, r: Math.abs(r) });
+    }
+  }
+  pairs.sort((a,b)=>b.r - a.r);
+  let top = pairs.slice(0, 6);
+  let canvas = document.getElementById("corrHeatPlaceholder");
+  if (!canvas) return;
+  let ctx = canvas.getContext("2d");
+  canvas.width = 800; canvas.height = 180;
+  ctx.fillStyle = "#0e1520"; ctx.fillRect(0,0,800,180);
+  ctx.fillStyle = "#58a6ff"; ctx.font = "10px monospace";
+  top.forEach((p, idx) => {
+    let y = 25 + idx*22;
+    ctx.fillStyle = "#8b949e"; ctx.fillText(p.label, 20, y);
+    let barWidth = p.r * 500;
+    ctx.fillStyle = "#58a6ff"; ctx.fillRect(180, y-8, barWidth, 12);
+    ctx.fillStyle = "#e6edf3"; ctx.fillText(p.r.toFixed(2), 180+barWidth+10, y);
+  });
+}
+
+function generateInsights(raw, cleaned) {
+  let ins = [];
+  let missingTotal = Object.values(missingBefore).reduce((a,b)=>a+b,0);
+  let totalCells = raw.length * Object.keys(raw[0]||{}).length;
+  let missPct = (missingTotal/totalCells*100).toFixed(1);
+  if (missPct > 0) ins.push({ type: "miss", text: `${missPct}% missing cells imputed using median/mode strategies.` });
+  let outlierCount = Object.values(outlierFlag).reduce((a,b)=>a+b,0);
+  if (outlierCount) ins.push({ type: "out", text: `Detected ${outlierCount} outliers across ${Object.keys(outlierFlag).length} columns; capped via IQR.` });
+  let numCols = Object.keys(columnTypes).filter(c=>columnTypes[c]==="numerical");
+  if (numCols.length >= 2) {
+    let vals = cleaned.map(r => Number(r[numCols[0]])).filter(v=>!isNaN(v));
+    let vals2 = cleaned.map(r => Number(r[numCols[1]])).filter(v=>!isNaN(v));
+    let len = Math.min(vals.length, vals2.length);
+    let corr = pearsonCorr(vals.slice(0,len), vals2.slice(0,len));
+    if (Math.abs(corr) > 0.5) ins.push({ type: "corr", text: `Strong correlation (${corr.toFixed(2)}) between ${numCols[0]} and ${numCols[1]}.` });
+  }
+  for (let col in columnTypes) {
+    if (columnTypes[col] === "categorical") {
+      let vals = cleaned.map(r=>r[col]);
+      let freq = {};
+      vals.forEach(v=>freq[v]=(freq[v]||0)+1);
+      let maxFreq = Math.max(...Object.values(freq));
+      if (maxFreq / cleaned.length > 0.7) ins.push({ type: "feat", text: `Column '${col}' is imbalanced (top category ${(maxFreq/cleaned.length*100).toFixed(0)}%).` });
+      break;
+    }
+  }
+  if (ins.length === 0) ins.push({ type: "feat", text: "Dataset is clean with no major anomalies." });
+  return ins;
+}
+function pearsonCorr(x,y) { let n=x.length; let sumX=x.reduce((a,b)=>a+b,0), sumY=y.reduce((a,b)=>a+b,0); let sumXY=x.reduce((a,b,i)=>a+b*y[i],0), sumX2=x.reduce((a,b)=>a+b*b,0), sumY2=y.reduce((a,b)=>a+b*b,0); let denom=Math.sqrt((sumX2-sumX*sumX/n)*(sumY2-sumY*sumY/n)); return denom===0?0:(sumXY-sumX*sumY/n)/denom; }
+
+function updateUI(raw, cleaned) {
+  document.getElementById("dataset-name").innerText = raw.length + " rows";
+  document.getElementById("stats-rows").innerText = raw.length;
+  let missTotal = Object.values(missingBefore).reduce((a,b)=>a+b,0);
+  let missPct = (missTotal/(raw.length*Object.keys(raw[0]).length)*100).toFixed(1);
+  document.getElementById("summary-cards").innerHTML = `
+    <div class="card card-accent-blue"><div class="card-label">Rows</div><div class="card-value">${raw.length}</div></div>
+    <div class="card card-accent-green"><div class="card-label">Columns</div><div class="card-value">${Object.keys(raw[0]).length}</div></div>
+    <div class="card card-accent-amber"><div class="card-label">Missing %</div><div class="card-value">${missPct}%</div><div class="card-sub">imputed</div></div>
+    <div class="card card-accent-red"><div class="card-label">Outliers</div><div class="card-value">${Object.values(outlierFlag).reduce((a,b)=>a+b,0)}</div><div class="card-sub">capped</div></div>
+  `;
+  let tblHtml = "";
+  for (let col in columnTypes) {
+    let missing = missingBefore[col] || 0;
+    let unique = new Set(raw.map(r=>r[col])).size;
+    let sample = raw.slice(0,2).map(r=>String(r[col]).slice(0,20)).join(", ");
+    tblHtml += `<tr><td>${col}</td><td><span class="type-badge">${columnTypes[col]}</span></td><td>${missing}</td><td>${unique}</td><td>${sample || "-"}</td></tr>`;
+  }
+  document.getElementById("schema-body").innerHTML = tblHtml;
+  document.getElementById("clean-cards").innerHTML = `
+    <div class="card card-accent-green"><div class="card-label">Duplicates</div><div class="card-value">${raw.length - cleaned.length}</div><div class="card-sub">removed</div></div>
+    <div class="card card-accent-blue"><div class="card-label">Imputations</div><div class="card-value">${Object.values(missingBefore).reduce((a,b)=>a+b,0)}</div><div class="card-sub">cells</div></div>
+    <div class="card card-accent-red"><div class="card-label">Outliers Capped</div><div class="card-value">${Object.values(outlierFlag).reduce((a,b)=>a+b,0)}</div><div class="card-sub">IQR method</div></div>
+  `;
+  insights = generateInsights(raw, cleaned);
+  document.getElementById("insights-list").innerHTML = insights.map(i => `
+    <div class="insight-card type-${i.type}"><div class="insight-icon">💡</div><div class="insight-body"><div class="insight-text"><strong>${i.type.toUpperCase()}</strong> — ${i.text}</div></div></div>
+  `).join("");
+  generateEDA(cleaned);
+}
+
+async function processFile(file) {
+  const prog = document.getElementById("upload-progress");
+  const bar = document.getElementById("progress-bar");
+  const label = document.getElementById("progress-label");
+  prog.style.display = "block";
+  bar.style.width = "30%"; label.innerText = "Parsing file...";
+  let data = null;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === "csv") {
+    data = await new Promise(resolve => Papa.parse(file, { header: true, dynamicTyping: false, complete: (res) => resolve(res.data) }));
+  } else if (ext === "xlsx" || ext === "xls") {
+    let buffer = await file.arrayBuffer();
+    let workbook = XLSX.read(buffer);
+    let sheet = workbook.Sheets[workbook.SheetNames[0]];
+    data = XLSX.utils.sheet_to_json(sheet);
+  } else if (ext === "json") {
+    let text = await file.text();
+    data = JSON.parse(text);
+    if (!Array.isArray(data)) data = [data];
+  }
+  if (!data || data.length === 0) throw new Error("No data");
+  bar.style.width = "70%"; label.innerText = "Analyzing schema...";
+  // infer column types
+  let sampleRows = data.slice(0, 500);
+  let cols = Object.keys(data[0]);
+  columnTypes = {};
+  for (let col of cols) columnTypes[col] = detectTypes(sampleRows, col);
+  currentData = data;
+  bar.style.width = "90%"; label.innerText = "Cleaning & outlier detection...";
+  cleanedData = cleanDataset(currentData);
+  bar.style.width = "100%"; label.innerText = "Complete!";
+  setTimeout(() => { prog.style.display = "none"; }, 800);
+  updateUI(currentData, cleanedData);
+  document.getElementById("dataset-name").innerText = file.name;
+  document.getElementById("timestamp").innerHTML = new Date().toLocaleString();
+}
+
+// event listeners
+document.getElementById("browse-btn").onclick = () => document.getElementById("file-input").click();
+document.getElementById("file-input").onchange = (e) => { if(e.target.files[0]) processFile(e.target.files[0]); };
+const dropzone = document.getElementById("dropzone");
+dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add("drag-over"); };
+dropzone.ondragleave = () => dropzone.classList.remove("drag-over");
+dropzone.ondrop = (e) => { e.preventDefault(); dropzone.classList.remove("drag-over"); const file = e.dataTransfer.files[0]; if(file) processFile(file); };
+dropzone.onclick = () => document.getElementById("file-input").click();
+document.getElementById("reset-btn").onclick = () => location.reload();
+document.getElementById("export-insights").onclick = () => {
+  let blob = new Blob([JSON.stringify({ insights, summary: { rows: currentData?.length, columns: currentData?.[0] ? Object.keys(currentData[0]).length : 0 } }, null, 2)], {type: "application/json"});
+  let a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "eda_insights.json"; a.click();
+};
+// sidebar toggle
+document.getElementById("hamburger").onclick = () => document.getElementById("sidebar").classList.toggle("open");
+document.addEventListener("click", (e) => { let s=document.getElementById("sidebar"); if(!s.contains(e.target) && !document.getElementById("hamburger").contains(e.target)) s.classList.remove("open"); });
+document.getElementById("timestamp").innerHTML = new Date().toLocaleString();
+// Load demo dataset on startup (Titanic-like synthetic)
+fetch("https://raw.githubusercontent.com/datasets/titanic/master/data/titanic.csv")
+  .then(res => res.ok ? res.text() : Promise.reject())
+  .then(csv => { const parsed = Papa.parse(csv, { header: true }).data.filter(r => Object.values(r).some(v=>v)); if(parsed.length) processFile(new File([csv], "titanic.csv", {type:"text/csv"})); })
+  .catch(() => { // fallback: synthetic data
+    let syn = [];
+    for(let i=0;i<815;i++) syn.push({ age: 30+Math.random()*40, fare: Math.exp(Math.random()*2), income: Math.exp(Math.random()*3)*20000, gender: Math.random()>0.5?"male":"female", class: ["first","second","third"][Math.floor(Math.random()*3)], survived: Math.random()>0.6?1:0 });
+    processFile(new File([JSON.stringify(syn)], "demo.json", {type:"application/json"}));
+  });
+</script>
+</body>
+</html>
